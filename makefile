@@ -17,7 +17,8 @@ TARGET = mate
 
 # c sourcecode files
 # eg. 'test.c foo.c foobar/baz.c'
-SRC = $(TARGET).c demo_rgb.c lpd8806.c demo_blink_left.c
+SRC = $(TARGET).c demo_rgb.c lpd8806.c demo_blink_left.c demo_motor.c
+
 
 # asm sourcecode files
 # eg. 'interrupts.S foobar/another.S'

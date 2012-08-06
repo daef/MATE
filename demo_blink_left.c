@@ -9,6 +9,7 @@ static uint32_t sunStart;
 
 uint8_t demo_blink_left_init(void) {
 	sunStart = sun;
+	return 0;
 }
 
 

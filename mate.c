@@ -12,6 +12,7 @@
 
 #include "demo_rgb.h"
 #include "demo_blink_left.h"
+#include "demo_motor.h"
 
 typedef uint8_t(*demoDelegate)(void);
 
@@ -25,6 +26,7 @@ typedef struct {
 demo_t demos[] = {
     {0,               demo_rgb_tick,        	 {0,1,0,0}, 1},
     {demo_blink_left_init, demo_blink_left_tick, {10,0,0,0}, 0},
+	{0,demo_motor_tick,{24,24,0,0},0}
 };
 
 volatile uint16_t rcInput, rcPot;
@@ -86,6 +88,22 @@ ISR(PCINT1_vect) {
     }
 }
 
+#define MOTOR0 OCR2A
+#define MOTOR1 OCR2B
+
+void setPwmOut(uint8_t chan, uint8_t value) {
+	//if(value < 15)
+	//	value = 15;
+	//else if(value > 33)
+	//	value = 33;
+	//	
+	if (chan == 0) {
+		MOTOR0 = value;
+	} else {
+		MOTOR1 = value;
+	}
+}
+
 int main(void) {
     DDRB |= (1<<DATA) | (1<<CLOCK); //DDR DATA CLOCK (OUT)    
     DDRC &= ~(1<<PC0 | 1<<PC1);     //DDR PWM          (IN)
@@ -93,9 +111,12 @@ int main(void) {
     PCICR = 2;  //PCINT 8...14 on
     PCMSK1 = 3; //PCINT 8 & 9 enable
     
+	// output direction for motor pwm
+	DDRB |= (1<<PB3);
+	DDRD |= (1<<PD3);
     TCCR2A = (1<<WGM21);
     TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20); //prescale 1k
-    OCR2A = 156;
+    OCR2A = 255;
     TIMSK2 |= (1<<OCIE2A);
     
     rcBar = parameter[choosenParameter];
