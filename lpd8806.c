@@ -6,11 +6,11 @@
 uint8_t state[LEDS * 3];
 
 static void tick() {
-    _delay_us(1);
+    //_delay_us(1);
     PORTB |= (1<<CLOCK);
-    _delay_us(1);
+    //_delay_us(1);
     PORTB &= ~(1<<CLOCK);
-    _delay_us(1);
+    //_delay_us(1);
 }
 
 static void sendZero() {

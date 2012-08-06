@@ -24,9 +24,9 @@ typedef struct {
 } demo_t;
 
 demo_t demos[] = {
-    {0,               demo_rgb_tick,        	 {0,1,0,0}, 1},
+    {0,               demo_rgb_tick,             {0,1,0,0}, 1},
     {demo_blink_left_init, demo_blink_left_tick, {10,0,0,0}, 0},
-	{0,demo_motor_tick,{24,24,0,0},0}
+    {0,demo_motor_tick,{24,24,0,0},0}
 };
 
 volatile uint16_t rcInput, rcPot;
@@ -79,47 +79,70 @@ ISR(PCINT1_vect) {
         rcLast = TCNT1;
         lastChannel = 1;
     } else {
-        if(lastChannel == 0) {
-            rcInput = TCNT1 - rcLast;
+        uint16_t time = TCNT1;
+        if(time<rcLast) {
+            //fix it
+            time = (PWM_PERIOD - rcLast) + time; 
         } else {
-            rcPot = TCNT1 - rcLast;
+            time = time - rcLast;
+        }
+        
+        if(lastChannel == 0) {
+            rcInput = time;
+        } else {
+            rcPot = time;
             rcSet = 1;
         }
     }
 }
 
-#define MOTOR0 OCR2A
-#define MOTOR1 OCR2B
-
+#define MOTOR0 OCR1A
+#define MOTOR1 OCR1B
+// MAX REV 0x32
+// STOP    0xBA
+//         
 void setPwmOut(uint8_t chan, uint8_t value) {
-	//if(value < 15)
-	//	value = 15;
-	//else if(value > 33)
-	//	value = 33;
-	//	
-	if (chan == 0) {
-		MOTOR0 = value;
-	} else {
-		MOTOR1 = value;
-	}
+    if (chan == 0) {
+        MOTOR0 = 1964L + ((uint16_t)value<<3);
+    } else {
+        MOTOR1 = 1964L + ((uint16_t)value<<3);
+    }
 }
 
-int main(void) {
-    DDRB |= (1<<DATA) | (1<<CLOCK); //DDR DATA CLOCK (OUT)    
+void rc_io_init(void) {
+    ////// OUT //////
+    OCR1A = 2000;
+    OCR1B = 2000;
+    ICR1 = PWM_PERIOD;
+    TCCR1B |= (1<<CS11) | (1<<WGM13) | (1<<WGM12);    //prescaler 1024 and some of the pwmmodebits (mode 14 fast pwm)
+    TCCR1A |= (1<<WGM11) | (1<<COM1A1) | (1<<COM1B1); // pwmmodebit    , waveformbits
+    //TCCR1B = 2;    //set timer to CLK/8
+    
+    DDRB |= (1<<PB2) | (1<<PB1);// configure PB0-PB2 as outputs
+    
+    ////// IN //////
     DDRC &= ~(1<<PC0 | 1<<PC1);     //DDR PWM          (IN)
-    TCCR1B = 2;    //set timer to CLK/8
     PCICR = 2;  //PCINT 8...14 on
     PCMSK1 = 3; //PCINT 8 & 9 enable
     
-	// output direction for motor pwm
-	DDRB |= (1<<PB3);
-	DDRD |= (1<<PD3);
-    TCCR2A = (1<<WGM21);
+}
+
+void led_init(void) {
+    DDRB |= (1<<DATA) | (1<<CLOCK); //DDR DATA CLOCK (OUT)    
+}
+
+void sun_init(void) {
+    TCCR2A = (1<<WGM21); //CTC (at least we guess so...)
     TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20); //prescale 1k
-    OCR2A = 255;
+    OCR2A = 156;
     TIMSK2 |= (1<<OCIE2A);
-    
-    rcBar = parameter[choosenParameter];
+}
+
+int main(void) {
+    rc_io_init();   //rc I&O pwm
+    led_init();     //set ddrb for lpd8806...
+    sun_init();     //init 2nd timer (demo-tixx)
+
     sei();
     
     while(1) {
@@ -213,7 +236,7 @@ int main(void) {
                         }
                     } else {
                         if(rcFoo < 9 && rcFoo > 0) {
-							updatingParameter = 0;
+                            updatingParameter = 0;
                             demo = 8-rcFoo;
                             demos[demo].active ^= 1;
                             if(demos[demo].active)
@@ -237,9 +260,15 @@ int main(void) {
             }
         }
 
-		for(uint8_t i=0;i<LEDS*3;i++)
-			state[i] = 0;
+        for(uint8_t i=0;i<LEDS*3;i++)
+            state[i] = 0;
     
+        for(uint8_t i=0;i<(sizeof(demos) / sizeof(demo_t));i++) {
+            if(demos[i].active) {
+                parameter = demos[i].parameter;
+                demos[i].active = demos[i].tick();
+            }
+        }
         if(dbg) {
             uint8_t mask = 128;
             uint8_t param = parameter[choosenParameter];
@@ -251,12 +280,10 @@ int main(void) {
                 state[i*3+1] = 0;
                 state[i*3+2] = 0;
             }
-        } else {
-            for(uint8_t i=0;i<(sizeof(demos) / sizeof(demo_t));i++) {
-                if(demos[i].active) {
-                    parameter = demos[i].parameter;
-                    demos[i].active = demos[i].tick();
-                }
+            for(uint8_t i=0;i<sizeof(demos)/sizeof(demo_t);i++) {
+                state[(8+i)*3+0] = 0;
+                state[(8+i)*3+1] = demos[i].active ? 255 : 0;
+                state[(8+i)*3+2] = 0;
             }
         }
         updateState();
