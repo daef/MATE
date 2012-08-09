@@ -12,6 +12,7 @@
 
 #include "demo_rgb.h"
 #include "demo_blink_left.h"
+#include "demo_blink_right.h"
 #include "demo_motor.h"
 
 typedef uint8_t(*demoDelegate)(void);
@@ -24,12 +25,13 @@ typedef struct {
 } demo_t;
 
 demo_t demos[] = {
-    {0,               demo_rgb_tick,             {0,1,0,0}, 1},
-    {demo_blink_left_init, demo_blink_left_tick, {10,0,0,0}, 0},
-    {0,demo_motor_tick,{24,24,0,0},0}
+    {0,                     demo_rgb_tick,         {0,0,0,0,},  0},
+    {demo_blink_left_init,  demo_blink_left_tick,  {10,0,0,0,}, 0},
+    {demo_blink_right_init, demo_blink_right_tick, {10,0,0,0,}, 0},
+    {0,                     demo_motor_tick,       {0,0,0,0,},  1},
 };
 
-volatile uint16_t rcInput, rcPot;
+volatile uint16_t rcInput, rcPot, rcMot0, rcMot1;
 volatile uint8_t  rcSet;
 
 uint8_t boehseTasetn[] = {
@@ -50,6 +52,8 @@ uint8_t demo,
 uint16_t rcFoo = 0xffff,
          rcBar,
          rcBarPoti,
+         rcBaz,
+         rcBuz,
          rcBarPotiMin = 0xffff,
          rcBarPotiMax,
          rcLast = 0;
@@ -78,6 +82,12 @@ ISR(PCINT1_vect) {
     } else if(PINC & (1<<PC1)) {
         rcLast = TCNT1;
         lastChannel = 1;
+    } else if(PINC & (1<<PC2)) {
+        rcLast = TCNT1;
+        lastChannel = 2;
+    } else if(PINC & (1<<PC3)) {
+        rcLast = TCNT1;
+        lastChannel = 3;
     } else {
         uint16_t time = TCNT1;
         if(time<rcLast) {
@@ -89,8 +99,12 @@ ISR(PCINT1_vect) {
         
         if(lastChannel == 0) {
             rcInput = time;
-        } else {
+        } else if(lastChannel == 1) {
             rcPot = time;
+        } else if(lastChannel == 2) {
+            rcMot0 = time;
+        } else if(lastChannel == 3) {
+            rcMot1 = time;
             rcSet = 1;
         }
     }
@@ -102,11 +116,13 @@ ISR(PCINT1_vect) {
 // STOP    0xBA
 //         
 void setPwmOut(uint8_t chan, uint8_t value) {
+    cli();
     if (chan == 0) {
         MOTOR0 = 1964L + ((uint16_t)value<<3);
     } else {
         MOTOR1 = 1964L + ((uint16_t)value<<3);
     }
+    sei();
 }
 
 void rc_io_init(void) {
@@ -121,10 +137,9 @@ void rc_io_init(void) {
     DDRB |= (1<<PB2) | (1<<PB1);// configure PB0-PB2 as outputs
     
     ////// IN //////
-    DDRC &= ~(1<<PC0 | 1<<PC1);     //DDR PWM          (IN)
+    DDRC &= ~(1<<PC0 | 1<<PC1 | 1<<PC2 | 1<<PC3);     //DDR PWM          (IN)
     PCICR = 2;  //PCINT 8...14 on
-    PCMSK1 = 3; //PCINT 8 & 9 enable
-    
+    PCMSK1 = 0x0f; //PCINT 8...11 enable
 }
 
 void led_init(void) {
@@ -151,10 +166,10 @@ int main(void) {
         if(rcSet) {
             rcSet = 0;
             
-            cli();
-            rcFoo = rcInput >> 5;
-            rcBarPoti = rcPot;
-            sei();
+            cli();  rcFoo = rcInput >> 5;    sei();
+            cli();  rcBarPoti = rcPot;       sei();
+            cli();  rcBaz = rcMot0;          sei();
+            cli();  rcBuz = rcMot1;          sei();
             
             //remember, remember...
             if(rcBarPotiMin>rcBarPoti)
@@ -214,8 +229,8 @@ int main(void) {
                                 updatingParameter = 2;
                                 break;
                             case 4:
-                                rcBarPotiMin = 0xffff;
-                                rcBarPotiMax = 0;
+                                aMin = uMin = rcBarPotiMin = 0xffff;
+                                aMax = uMax = rcBarPotiMax = 0; //see demo_motor.c
                                 break;
                             case 5:
                                 dbg ^= 1;
@@ -235,7 +250,7 @@ int main(void) {
                                 break;
                         }
                     } else {
-                        if(rcFoo < 9 && rcFoo > 0) {
+                        if(rcFoo >= (sizeof(demos) / sizeof(demo_t)) && rcFoo > 0) {
                             updatingParameter = 0;
                             demo = 8-rcFoo;
                             demos[demo].active ^= 1;
@@ -280,10 +295,19 @@ int main(void) {
                 state[i*3+1] = 0;
                 state[i*3+2] = 0;
             }
-            for(uint8_t i=0;i<sizeof(demos)/sizeof(demo_t);i++) {
-                state[(8+i)*3+0] = 0;
-                state[(8+i)*3+1] = demos[i].active ? 255 : 0;
+
+            mask = 128;
+            for(uint8_t i=0;i<8;i++) {
+                //GGGG GGGG  RRRR RRRR  BBBB BBBB
+                state[(8+i)*3+1] = 0;
                 state[(8+i)*3+2] = 0;
+                state[(8+i)*3+0] = (rcBaz & mask) ? 255 : 0;
+                mask >>= 1;
+            }
+            for(uint8_t i=0;i<sizeof(demos)/sizeof(demo_t);i++) {
+                state[(16+i)*3+0] = 0;
+                state[(16+i)*3+1] = demos[i].active ? 255 : 0;
+                state[(16+i)*3+2] = 0;
             }
         }
         updateState();
